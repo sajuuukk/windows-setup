@@ -607,6 +607,72 @@ $Shortcut.Description = "AltDrag Window Manager"
 $Shortcut.Save()
 Write-Host "[+] Startup shortcut created." -ForegroundColor Green
 
+# --- 8. SSH & GPG SETUP ---
+Write-Host "`n[*] Setting up SSH & GPG..." -ForegroundColor Cyan
+
+# 8a. Configure SSH Agent in PowerShell Profile
+Write-Host "    -> Configuring PowerShell Profile to auto-start ssh-agent..."
+$ProfilePath = $PROFILE
+if (!(Test-Path $ProfilePath)) {
+    $ProfileDir = Split-Path $ProfilePath -Parent
+    if (!(Test-Path $ProfileDir)) {
+        New-Item -ItemType Directory -Path $ProfileDir -Force | Out-Null
+    }
+    New-Item -Type File -Path $ProfilePath -Force | Out-Null
+}
+
+$SSHAutoStart = @"
+
+# Auto-start SSH Agent
+if ((Get-Service ssh-agent).Status -ne 'Running') {
+    Start-Service ssh-agent
+}
+"@
+
+$CurrentProfileContent = Get-Content $ProfilePath -Raw -ErrorAction SilentlyContinue
+if ($null -eq $CurrentProfileContent -or $CurrentProfileContent -notmatch "Start-Service ssh-agent") {
+    Add-Content -Path $ProfilePath -Value $SSHAutoStart
+    Write-Host " [OK] Added ssh-agent auto-start to profile." -ForegroundColor Green
+} else {
+    Write-Host " [SKIP] ssh-agent auto-start already in profile." -ForegroundColor Yellow
+}
+
+# Ensure the service is set to automatic startup
+Get-Service -Name ssh-agent | Set-Service -StartupType Automatic
+Start-Service ssh-agent
+
+# 8b. SSH Key Setup
+$SetupSSH = Read-Host "`nDo you want to generate a new SSH key? (y/n)"
+if ($SetupSSH -eq 'y') {
+    $Email = Read-Host "Enter your email for the SSH key"
+    ssh-keygen -t ed25519 -C "$Email"
+    Write-Host "[*] SSH key generated." -ForegroundColor Green
+    Write-Host "    Remember to add your public key to GitHub/GitLab!" -ForegroundColor Yellow
+    $PubKeyPath = "$env:USERPROFILE\.ssh\id_ed25519.pub"
+    Write-Host "    Key location: $PubKeyPath" -ForegroundColor Gray
+    if (Test-Path $PubKeyPath) {
+        Get-Content $PubKeyPath | Write-Host
+    }
+}
+
+# 8c. GPG Key Setup
+$SetupGPG = Read-Host "`nDo you want to generate a new GPG key? (y/n)"
+if ($SetupGPG -eq 'y') {
+    if (-not (Get-Command "gpg" -ErrorAction SilentlyContinue)) {
+         Write-Host "[-] Installing GnuPG..." -ForegroundColor Yellow
+         WinGet install --id GnuPG.GnuPG -e --source winget --accept-source-agreements --accept-package-agreements --disable-interactivity
+         # Update path for current session
+         $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User")
+    }
+
+    if (Get-Command "gpg" -ErrorAction SilentlyContinue) {
+        gpg --full-generate-key
+        Write-Host "[*] GPG key generation complete." -ForegroundColor Green
+    } else {
+         Write-Error "GPG could not be found even after attempted install."
+    }
+}
+
 Write-Host "`n[+] Setup Complete! RESTART REQUIRED." -ForegroundColor Yellow
 Write-Host "    After restart, hold Alt + Left Click to drag windows!" -ForegroundColor Gray
 Read-Host "Press Enter to exit"
