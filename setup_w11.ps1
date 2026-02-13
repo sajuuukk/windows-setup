@@ -121,38 +121,38 @@ $AltDragContent = '@
 ; Technically, scaling via Alt+ScrollUp stops a bit before the *actual* max window size is reached (due to client area differences)
 */
  ; <- uncomment the /* if you intend to use it as a standalone script
-; Drag Window
-!LButton::{
+; Drag Window (Win + Left Click)
+#LButton::{
 	AltDrag.moveWindow()
 }
 
-; Resize Window
-!RButton::{
+; Resize Window (Win + Right Click)
+#RButton::{
 	AltDrag.resizeWindow()
 }
 
 ; Toggle Max/Restore of clicked window
-!MButton::{
+#MButton::{
 	AltDrag.toggleMaxRestore()
 }
 
 ; Scale Window Down
-!WheelDown::{
+#WheelDown::{
 	AltDrag.scaleWindow(-1)
 }
 
 ; Scale Window Up
-!WheelUp::{
+#WheelUp::{
 	AltDrag.scaleWindow(1)
 }
 
 ; Minimize Window
-!XButton1::{
+#XButton1::{
 	AltDrag.minimizeWindow()
 }
 
 ; Make Window Borderless Fullscreen
-!XButton2::{
+#XButton2::{
 	AltDrag.borderlessFullscreenWindow()
 }
 ; */
@@ -711,10 +711,10 @@ Apply-RegTweak -Path "HKLM:\Software\Policies\Microsoft\Windows\WindowsUpdate\AU
 # 9e. Accessibility & Ease of Use
 Write-Host "    -> Configuring Accessibility..."
 Apply-RegTweak -Path "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Image File Execution Options\Narrator.exe" -Name "Debugger" -Value "%1" -Type String -Description "Disable Narrator"
-Apply-RegTweak -Path "HKCU:\Control Panel\Desktop" -Name "WindowArrangementActive" -Value "0" -Type String -Description "Disable Window Snap Arrangement"
-Apply-RegTweak -Path "HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\Advanced" -Name "SnapFill" -Value 0 -Type DWord -Description "Disable Snap Fill"
-Apply-RegTweak -Path "HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\Advanced" -Name "SnapAssist" -Value 0 -Type DWord -Description "Disable Snap Assist"
-Apply-RegTweak -Path "HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\Advanced" -Name "JointResize" -Value 0 -Type DWord -Description "Disable Joint Resize"
+Apply-RegTweak -Path "HKCU:\Control Panel\Desktop" -Name "WindowArrangementActive" -Value "1" -Type String -Description "Enable Window Snap Arrangement"
+Apply-RegTweak -Path "HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\Advanced" -Name "SnapFill" -Value 1 -Type DWord -Description "Enable Snap Fill"
+Apply-RegTweak -Path "HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\Advanced" -Name "SnapAssist" -Value 1 -Type DWord -Description "Enable Snap Assist"
+Apply-RegTweak -Path "HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\Advanced" -Name "JointResize" -Value 1 -Type DWord -Description "Enable Joint Resize"
 Apply-RegTweak -Path "HKCU:\SOFTWARE\Microsoft\TabletTip\1.7" -Name "EnableAutocorrection" -Value 0 -Type DWord -Description "Disable Tablet Autocorrect"
 
 # 9f. Bloatware Removal
@@ -731,6 +731,13 @@ $BloatApps = @(
 foreach ($App in $BloatApps) {
     Write-Host "    -> Removing: $App" -NoNewline
     Get-AppxPackage $App -ErrorAction SilentlyContinue | Remove-AppxPackage -ErrorAction SilentlyContinue
+    Write-Host " [DONE]" -ForegroundColor Green
+}
+
+# Install Image Viewer Replacement
+if (-not (Get-Command "nomacs" -ErrorAction SilentlyContinue)) {
+    Write-Host "    -> Installing nomacs (Image Viewer)..." -NoNewline
+    WinGet install --id nomacs.nomacs -e --source winget --accept-source-agreements --accept-package-agreements --disable-interactivity
     Write-Host " [DONE]" -ForegroundColor Green
 }
 
