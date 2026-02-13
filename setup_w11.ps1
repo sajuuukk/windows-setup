@@ -754,7 +754,6 @@ foreach ($item in $cleanupItems.Keys) {
 
 # 9h. PowerShell Console Tweaks
 Write-Host "    -> Configuring PowerShell Console..."
-Apply-RegTweak -Path "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Console\TrueTypeFont" -Name "000" -Value "Source Code Pro" -Type String -Description "Set Console Font"
 Apply-RegTweak -Path "HKCU:\Console\PSReadLine" -Name "NormalForeground" -Value 0xF -Type DWord -Description "PSReadLine: Normal"
 Apply-RegTweak -Path "HKCU:\Console\PSReadLine" -Name "CommentForeground" -Value 0x7 -Type DWord -Description "PSReadLine: Comment"
 Apply-RegTweak -Path "HKCU:\Console\PSReadLine" -Name "KeywordForeground" -Value 0x1 -Type DWord -Description "PSReadLine: Keyword"
