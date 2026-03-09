@@ -1,0 +1,4 @@
+## 2024-05-01 - Command Injection via PowerShell Interpolation into Bash
+**Vulnerability:** Command injection in `build_emacs.ps1` where user-supplied parameters (`$InstallPath`, `$BuildDir`, `$OutputDir`) were directly interpolated into strings executed by `bash -c`.
+**Learning:** When PowerShell strings containing paths are passed directly to `Invoke-MsysBash` (which calls `bash -c`), any bash metacharacters (like `;`, `&`, `$`, `` ` ``) in the PowerShell variables will be interpreted by bash, leading to RCE/command injection. Even if PowerShell treats them as literal strings initially, bash executes them.
+**Prevention:** Always validate and sanitize inputs before interpolating them into a secondary shell. A strict regex rejecting `[\&\|\;\`$\>\<\`'\`"\``\`n\`r]` on path variables prevents bash from misinterpreting parts of the path as commands.

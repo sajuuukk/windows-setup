@@ -10,6 +10,14 @@ param (
     [string]$OutputDir = "$env:USERPROFILE\emacs-build"
 )
 
+# Input Validation: Prevent Command Injection in bash via paths
+$UnsafePattern = "[\&\|\;\`$\>\<\`'\`"\``\`n\`r]"
+foreach ($Path in @($InstallPath, $BuildDir, $OutputDir)) {
+    if ($Path -match $UnsafePattern) {
+        Throw "Security Error: Input path contains unsafe characters and may lead to command injection."
+    }
+}
+
 # Check Admin Privileges
 if (!([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole] "Administrator")) {
     Write-Warning "This script requires Administrator privileges."
