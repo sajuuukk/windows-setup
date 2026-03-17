@@ -1,0 +1,3 @@
+## 2024-05-18 - Batch WMI/Appx queries to reduce overhead
+**Learning:** Windows cmdlets like Get-AppxPackage have significant overhead per invocation (1-2s each) due to querying WMI or the package database. Running these in O(N) loops drastically slows down scripts.
+**Action:** When performing operations on multiple system packages or objects, fetch them all at once (batching) and filter locally using `Where-Object` before passing them to the removal/update cmdlet.

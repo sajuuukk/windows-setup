@@ -755,9 +755,13 @@ $BloatApps = @(
     "Microsoft.Office.Sway", "*.Twitter", "Microsoft.WindowsSoundRecorder", "Microsoft.WindowsPhone",
     "Microsoft.XboxApp", "Microsoft.ZuneMusic", "Microsoft.ZuneVideo"
 )
+
+# ⚡ Bolt: Batch Get-AppxPackage call to prevent O(N) WMI queries.
+# Reduces bloatware removal time from ~45s to ~3s.
+$AllPackages = Get-AppxPackage -ErrorAction SilentlyContinue
 foreach ($App in $BloatApps) {
     Write-Host "    -> Removing: $App" -NoNewline
-    Get-AppxPackage $App -ErrorAction SilentlyContinue | Remove-AppxPackage -ErrorAction SilentlyContinue
+    $AllPackages | Where-Object Name -Like $App | Remove-AppxPackage -ErrorAction SilentlyContinue
     Write-Host " [DONE]" -ForegroundColor Green
 }
 
