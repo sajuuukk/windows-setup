@@ -29,20 +29,33 @@ $HKInstallPath   = "C:\HardeningKitty"
 $ToolsPath       = "C:\Tools"
 $AltDragPath     = "$ToolsPath\AltDrag"
 $RepoUrl         = "https://github.com/scipag/HardeningKitty.git"
-$FindingList     = "finding_list_0x6d69636b_machine.csv" 
+$FindingList     = "finding_list_0x6d69636b_machine.csv"
 $BackupPath      = "$env:USERPROFILE\Desktop\RegBackups"
 $StartupFolder   = "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\Startup"
 
-# --- 3. HELPER FUNCTION ---
+# Start transcript so the full run is logged for post-failure review
+$TranscriptPath = "$BackupPath\setup_$(Get-Date -Format 'yyyyMMdd_HHmmss').log"
 New-Item -ItemType Directory -Force -Path $BackupPath | Out-Null
-New-Item -ItemType Directory -Force -Path $AltDragPath | Out-Null
+Start-Transcript -Path $TranscriptPath
+Write-Host "[*] Logging to: $TranscriptPath" -ForegroundColor Gray
 
-function Apply-RegTweak {
+# --- 2b. CHECK WINGET ---
+if (-not (Get-Command "winget" -ErrorAction SilentlyContinue)) {
+    Write-Error "winget is not available on this system. Install App Installer from the Microsoft Store and re-run."
+    Stop-Transcript
+    Exit 1
+}
+
+function Set-RegTweak {
     param($Path, $Name, $Value, $Type, $Description)
     Write-Host "    -> Applying: $Description" -NoNewline
     if (!(Test-Path $Path)) { New-Item -Path $Path -Force | Out-Null }
     $SafeName = $Name -replace '[\\/:*?"<>|]', '_'
-    reg export "$Path" "$BackupPath\$SafeName.reg" /y 2>$null
+    # reg.exe requires native registry paths (HKCU\, HKLM\) not PowerShell provider paths (HKCU:\, HKLM:\)
+    $RegExportPath = $Path -replace '^(HK[A-Z]+):\\', '$1\'
+    $SafePath = $RegExportPath -replace '[\\/:*?"<>|]', '_'
+    New-Item -ItemType Directory -Force -Path $BackupPath | Out-Null
+    reg export "$RegExportPath" "$BackupPath\${SafePath}__${SafeName}.reg" /y 2>$null
     try {
         New-ItemProperty -Path $Path -Name $Name -Value $Value -PropertyType $Type -Force | Out-Null
         Write-Host " [OK]" -ForegroundColor Green
@@ -53,16 +66,16 @@ function Apply-RegTweak {
 
 # --- 4. GENERAL PERFORMANCE TWEAKS ---
 Write-Host "`n[*] Applying General Performance Tweaks..." -ForegroundColor Cyan
-Apply-RegTweak -Path "HKCU:\Control Panel\Desktop" -Name "MenuShowDelay" -Value "0" -Type String -Description "Reduce Menu Delay"
-Apply-RegTweak -Path "HKLM:\SYSTEM\CurrentControlSet\Control" -Name "WaitToKillServiceTimeout" -Value "2000" -Type String -Description "Reduce Shutdown Timeout"
-Apply-RegTweak -Path "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Multimedia\SystemProfile" -Name "NetworkThrottlingIndex" -Value 0xFFFFFFFF -Type DWord -Description "Disable Network Throttling"
+Set-RegTweak -Path "HKCU:\Control Panel\Desktop" -Name "MenuShowDelay" -Value "0" -Type String -Description "Reduce Menu Delay"
+Set-RegTweak -Path "HKLM:\SYSTEM\CurrentControlSet\Control" -Name "WaitToKillServiceTimeout" -Value "2000" -Type String -Description "Reduce Shutdown Timeout"
+Set-RegTweak -Path "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Multimedia\SystemProfile" -Name "NetworkThrottlingIndex" -Value 0xFFFFFFFF -Type DWord -Description "Disable Network Throttling"
 
 # --- 5. NETWORK EXPLORER FIXES ---
 Write-Host "`n[*] Applying Network Explorer Fixes..." -ForegroundColor Cyan
-Apply-RegTweak -Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced" -Name "SeparateProcess" -Value 1 -Type DWord -Description "Explorer Separate Process"
-Apply-RegTweak -Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\Policies\Explorer" -Name "DisableThumbnailsOnNetworkFolders" -Value 1 -Type DWord -Description "Disable Network Thumbnails"
-Apply-RegTweak -Path "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\Explorer" -Name "NoRemoteRecursiveEvents" -Value 1 -Type DWord -Description "Disable Remote Recursive Events"
-Apply-RegTweak -Path "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\Explorer" -Name "NoRemoteChangeNotify" -Value 1 -Type DWord -Description "Disable Remote Change Notify"
+Set-RegTweak -Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced" -Name "SeparateProcess" -Value 1 -Type DWord -Description "Explorer Separate Process"
+Set-RegTweak -Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\Policies\Explorer" -Name "DisableThumbnailsOnNetworkFolders" -Value 1 -Type DWord -Description "Disable Network Thumbnails"
+Set-RegTweak -Path "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\Explorer" -Name "NoRemoteRecursiveEvents" -Value 1 -Type DWord -Description "Disable Remote Recursive Events"
+Set-RegTweak -Path "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\Explorer" -Name "NoRemoteChangeNotify" -Value 1 -Type DWord -Description "Disable Remote Change Notify"
 
 # --- 6. GIT & HARDENINGKITTY ---
 Write-Host "`n[*] Starting HardeningKitty Setup..." -ForegroundColor Cyan
@@ -73,18 +86,18 @@ if (-not (Get-Command "git" -ErrorAction SilentlyContinue)) {
 }
 
 if (Test-Path $HKInstallPath) {
-    Set-Location $HKInstallPath
+    Push-Location $HKInstallPath
     git pull
+    Pop-Location
 } else {
     git clone $RepoUrl $HKInstallPath
-    Set-Location $HKInstallPath
 }
 
 try {
     Write-Host "[*] Running HardeningKitty AUDIT..." -ForegroundColor Yellow
-    Import-Module ".\HardeningKitty.psm1" -Force
+    Import-Module "$HKInstallPath\HardeningKitty.psm1" -Force
     $ReportName = "HK_Audit_$(Get-Date -Format 'yyyyMMdd_HHmmss')"
-    Invoke-HardeningKitty -Mode Audit -FileFindingList ".\lists\$FindingList" -Report -ReportFile "$HKInstallPath\$ReportName.csv" | Out-Null
+    Invoke-HardeningKitty -Mode Audit -FileFindingList "$HKInstallPath\lists\$FindingList" -Report -ReportFile "$HKInstallPath\$ReportName.csv" | Out-Null
     Write-Host "[+] Audit Complete: $HKInstallPath\$ReportName.csv" -ForegroundColor Green
 } catch { Write-Error "HardeningKitty failed: $_" }
 
@@ -594,6 +607,7 @@ class AltDrag {
 }
 @
 
+New-Item -ItemType Directory -Force -Path $AltDragPath | Out-Null
 Set-Content -Path "$AltDragPath\AltDrag.ahk" -Value $AltDragContent
 Write-Host "[+] AltDrag.ahk created at $AltDragPath" -ForegroundColor Green
 
@@ -630,7 +644,7 @@ if ((Get-Service ssh-agent).Status -ne 'Running') {
 "@
 
 $CurrentProfileContent = Get-Content $ProfilePath -Raw -ErrorAction SilentlyContinue
-if ($null -eq $CurrentProfileContent -or $CurrentProfileContent -notmatch "Start-Service ssh-agent") {
+if ([string]::IsNullOrEmpty($CurrentProfileContent) -or $CurrentProfileContent -notmatch "Start-Service ssh-agent") {
     Add-Content -Path $ProfilePath -Value $SSHAutoStart
     Write-Host " [OK] Added ssh-agent auto-start to profile." -ForegroundColor Green
 } else {
@@ -648,10 +662,14 @@ if ($SetupSSH -eq 'y') {
     ssh-keygen -t ed25519 -C "$Email"
     Write-Host "[*] SSH key generated." -ForegroundColor Green
     Write-Host "    Remember to add your public key to GitHub/GitLab!" -ForegroundColor Yellow
-    $PubKeyPath = "$env:USERPROFILE\.ssh\id_ed25519.pub"
+    $DefaultPubKeyPath = "$env:USERPROFILE\.ssh\id_ed25519.pub"
+    $PubKeyPath = Read-Host "    Enter the path to your public key (press Enter for default: $DefaultPubKeyPath)"
+    if ([string]::IsNullOrWhiteSpace($PubKeyPath)) { $PubKeyPath = $DefaultPubKeyPath }
     Write-Host "    Key location: $PubKeyPath" -ForegroundColor Gray
     if (Test-Path $PubKeyPath) {
         Get-Content $PubKeyPath | Write-Host
+    } else {
+        Write-Host "    [!] Key not found at $PubKeyPath — check the path manually." -ForegroundColor Yellow
     }
 }
 
@@ -681,41 +699,50 @@ Write-Host "`n[*] Applying Extended System Tweaks..." -ForegroundColor Cyan
 
 # 9b. Power, Startup & Sound
 Write-Host "    -> Configuring Power & Startup..."
-Apply-RegTweak -Path "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System" -Name "DisableStartupSound" -Value 1 -Type DWord -Description "Disable Startup Sound"
-Apply-RegTweak -Path "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Authentication\LogonUI\BootAnimation" -Name "DisableStartupSound" -Value 1 -Type DWord -Description "Disable Boot Animation Sound"
-Apply-RegTweak -Path "HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager\Memory Management\PrefetchParameters" -Name "EnableSuperfetch" -Value 0 -Type DWord -Description "Disable SuperFetch"
+Set-RegTweak -Path "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System" -Name "DisableStartupSound" -Value 1 -Type DWord -Description "Disable Startup Sound"
+Set-RegTweak -Path "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Authentication\LogonUI\BootAnimation" -Name "DisableStartupSound" -Value 1 -Type DWord -Description "Disable Boot Animation Sound"
+Set-RegTweak -Path "HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager\Memory Management\PrefetchParameters" -Name "EnableSuperfetch" -Value 0 -Type DWord -Description "Disable SuperFetch"
 powercfg /change /standby-timeout-ac 30
 
 # 9c. Explorer & Taskbar Customization
 Write-Host "    -> Configuring Explorer & Taskbar..."
-Apply-RegTweak -Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced" -Name "Hidden" -Value 1 -Type DWord -Description "Show Hidden Files"
-Apply-RegTweak -Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced" -Name "HideFileExt" -Value 0 -Type DWord -Description "Show File Extensions"
-Apply-RegTweak -Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\CabinetState" -Name "FullPath" -Value 1 -Type DWord -Description "Show Full Path in Title Bar"
-Apply-RegTweak -Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced" -Name "TaskbarSmallIcons" -Value 1 -Type DWord -Description "Enable Small Taskbar Icons"
-Apply-RegTweak -Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced" -Name "StoreAppsOnTaskbar" -Value 0 -Type DWord -Description "Hide Store Apps on Taskbar"
-Apply-RegTweak -Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\Search" -Name "BingSearchEnabled" -Value 0 -Type DWord -Description "Disable Bing Search"
-Apply-RegTweak -Path "HKLM:\Software\Policies\Microsoft\Windows\Windows Search" -Name "AllowCortana" -Value 0 -Type DWord -Description "Disable Cortana"
-Apply-RegTweak -Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\Policies\Explorer" -Name "HideSCAHealth" -Value 1 -Type DWord -Description "Hide Action Center Icon"
-Apply-RegTweak -Path "HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Themes\Personalize" -Name "ColorPrevalence" -Value 1 -Type DWord -Description "Show Color on Start/Taskbar"
-Apply-RegTweak -Path "HKCU:\SOFTWARE\Microsoft\Windows\DWM" -Name "ColorPrevalence" -Value 0 -Type DWord -Description "Disable Color on Title Bars"
-Apply-RegTweak -Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\Policies\Explorer" -Name "ConfirmFileDelete" -Value 0 -Type DWord -Description "Disable Delete Confirmation"
+Set-RegTweak -Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced" -Name "Hidden" -Value 1 -Type DWord -Description "Show Hidden Files"
+Set-RegTweak -Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced" -Name "HideFileExt" -Value 0 -Type DWord -Description "Show File Extensions"
+Set-RegTweak -Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\CabinetState" -Name "FullPath" -Value 1 -Type DWord -Description "Show Full Path in Title Bar"
+Set-RegTweak -Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced" -Name "TaskbarSmallIcons" -Value 1 -Type DWord -Description "Enable Small Taskbar Icons (Windows 10 only — no effect on Windows 11)"
+Set-RegTweak -Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced" -Name "StoreAppsOnTaskbar" -Value 0 -Type DWord -Description "Hide Store Apps on Taskbar"
+Set-RegTweak -Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\Search" -Name "BingSearchEnabled" -Value 0 -Type DWord -Description "Disable Bing Search"
+Set-RegTweak -Path "HKLM:\Software\Policies\Microsoft\Windows\Windows Search" -Name "AllowCortana" -Value 0 -Type DWord -Description "Disable Cortana"
+Set-RegTweak -Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\Policies\Explorer" -Name "HideSCAHealth" -Value 1 -Type DWord -Description "Hide Action Center Icon (Windows 10 only — no effect on Windows 11)"
+Set-RegTweak -Path "HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Themes\Personalize" -Name "ColorPrevalence" -Value 1 -Type DWord -Description "Show Color on Start/Taskbar"
+Set-RegTweak -Path "HKCU:\SOFTWARE\Microsoft\Windows\DWM" -Name "ColorPrevalence" -Value 0 -Type DWord -Description "Disable Color on Title Bars"
+Set-RegTweak -Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\Policies\Explorer" -Name "ConfirmFileDelete" -Value 0 -Type DWord -Description "Disable Delete Confirmation"
 
 # 9d. Windows Update Policies
 Write-Host "    -> Configuring Windows Update Policies..."
-Apply-RegTweak -Path "HKLM:\Software\Policies\Microsoft\Windows\WindowsUpdate\AU" -Name "NoAutoUpdate" -Value 1 -Type DWord -Description "Disable Automatic Updates"
-Apply-RegTweak -Path "HKLM:\Software\Policies\Microsoft\Windows\WindowsUpdate" -Name "NoAutoRebootWithLoggedOnUsers" -Value 1 -Type DWord -Description "Disable Auto Reboot (Logged On)"
-Apply-RegTweak -Path "HKLM:\Software\Policies\Microsoft\Windows\WindowsUpdate\AU" -Name "NoAutoRebootWithLoggedOnUsers" -Value 1 -Type DWord -Description "Disable Auto Reboot (AU)"
-Apply-RegTweak -Path "HKLM:\Software\Policies\Microsoft\Windows\WindowsUpdate\AU" -Name "AUOptions" -Value 3 -Type DWord -Description "Notify Before Install"
-Apply-RegTweak -Path "HKLM:\Software\Policies\Microsoft\Windows\WindowsUpdate\AU" -Name "IncludeRecommendedUpdates" -Value 1 -Type DWord -Description "Include Recommended Updates"
+Write-Host ""
+Write-Host "    [!] WARNING: The next step will disable automatic Windows Update downloads." -ForegroundColor Yellow
+Write-Host "        This leaves the machine unpatched until you manually check for updates." -ForegroundColor Yellow
+Write-Host "        Only recommended on managed workstations or air-gapped environments." -ForegroundColor Yellow
+$DisableAutoUpdate = Read-Host "    Disable automatic updates? (y/n)"
+if ($DisableAutoUpdate -eq 'y') {
+    Set-RegTweak -Path "HKLM:\Software\Policies\Microsoft\Windows\WindowsUpdate\AU" -Name "NoAutoUpdate" -Value 1 -Type DWord -Description "Disable Automatic Updates"
+} else {
+    Write-Host "    [SKIP] Leaving automatic updates enabled." -ForegroundColor Gray
+}
+Set-RegTweak -Path "HKLM:\Software\Policies\Microsoft\Windows\WindowsUpdate" -Name "NoAutoRebootWithLoggedOnUsers" -Value 1 -Type DWord -Description "Disable Auto Reboot (Logged On)"
+Set-RegTweak -Path "HKLM:\Software\Policies\Microsoft\Windows\WindowsUpdate\AU" -Name "NoAutoRebootWithLoggedOnUsers" -Value 1 -Type DWord -Description "Disable Auto Reboot (AU)"
+Set-RegTweak -Path "HKLM:\Software\Policies\Microsoft\Windows\WindowsUpdate\AU" -Name "AUOptions" -Value 3 -Type DWord -Description "Notify Before Install"
+Set-RegTweak -Path "HKLM:\Software\Policies\Microsoft\Windows\WindowsUpdate\AU" -Name "IncludeRecommendedUpdates" -Value 1 -Type DWord -Description "Include Recommended Updates"
 
 # 9e. Accessibility & Ease of Use
 Write-Host "    -> Configuring Accessibility..."
-Apply-RegTweak -Path "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Image File Execution Options\Narrator.exe" -Name "Debugger" -Value "%1" -Type String -Description "Disable Narrator"
-Apply-RegTweak -Path "HKCU:\Control Panel\Desktop" -Name "WindowArrangementActive" -Value "1" -Type String -Description "Enable Window Snap Arrangement"
-Apply-RegTweak -Path "HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\Advanced" -Name "SnapFill" -Value 1 -Type DWord -Description "Enable Snap Fill"
-Apply-RegTweak -Path "HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\Advanced" -Name "SnapAssist" -Value 1 -Type DWord -Description "Enable Snap Assist"
-Apply-RegTweak -Path "HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\Advanced" -Name "JointResize" -Value 1 -Type DWord -Description "Enable Joint Resize"
-Apply-RegTweak -Path "HKCU:\SOFTWARE\Microsoft\TabletTip\1.7" -Name "EnableAutocorrection" -Value 0 -Type DWord -Description "Disable Tablet Autocorrect"
+Set-RegTweak -Path "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Image File Execution Options\Narrator.exe" -Name "Debugger" -Value "%1" -Type String -Description "Disable Narrator"
+Set-RegTweak -Path "HKCU:\Control Panel\Desktop" -Name "WindowArrangementActive" -Value "1" -Type String -Description "Enable Window Snap Arrangement"
+Set-RegTweak -Path "HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\Advanced" -Name "SnapFill" -Value 1 -Type DWord -Description "Enable Snap Fill"
+Set-RegTweak -Path "HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\Advanced" -Name "SnapAssist" -Value 1 -Type DWord -Description "Enable Snap Assist"
+Set-RegTweak -Path "HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\Advanced" -Name "JointResize" -Value 1 -Type DWord -Description "Enable Joint Resize"
+Set-RegTweak -Path "HKCU:\SOFTWARE\Microsoft\TabletTip\1.7" -Name "EnableAutocorrection" -Value 0 -Type DWord -Description "Disable Tablet Autocorrect"
 
 # 9f. Bloatware Removal
 Write-Host "`n[*] Removing Bloatware Apps..." -ForegroundColor Cyan
@@ -756,24 +783,24 @@ $cleanupItems = @{
     "Windows Error Reporting Temp Files" = 0; "Windows ESD installation files" = 0; "Windows Upgrade Log Files" = 0
 }
 foreach ($item in $cleanupItems.Keys) {
-    Apply-RegTweak -Path "$diskCleanupRegPath\$item" -Name "StateFlags6174" -Value $cleanupItems[$item] -Type DWord -Description "DiskCleanup: $item"
+    Set-RegTweak -Path "$diskCleanupRegPath\$item" -Name "StateFlags6174" -Value $cleanupItems[$item] -Type DWord -Description "DiskCleanup: $item"
 }
 
 # 9h. PowerShell Console Tweaks
 Write-Host "    -> Configuring PowerShell Console..."
-Apply-RegTweak -Path "HKCU:\Console\PSReadLine" -Name "NormalForeground" -Value 0xF -Type DWord -Description "PSReadLine: Normal"
-Apply-RegTweak -Path "HKCU:\Console\PSReadLine" -Name "CommentForeground" -Value 0x7 -Type DWord -Description "PSReadLine: Comment"
-Apply-RegTweak -Path "HKCU:\Console\PSReadLine" -Name "KeywordForeground" -Value 0x1 -Type DWord -Description "PSReadLine: Keyword"
-Apply-RegTweak -Path "HKCU:\Console\PSReadLine" -Name "StringForeground" -Value 0xA -Type DWord -Description "PSReadLine: String"
-Apply-RegTweak -Path "HKCU:\Console\PSReadLine" -Name "OperatorForeground" -Value 0xB -Type DWord -Description "PSReadLine: Operator"
-Apply-RegTweak -Path "HKCU:\Console\PSReadLine" -Name "VariableForeground" -Value 0xB -Type DWord -Description "PSReadLine: Variable"
-Apply-RegTweak -Path "HKCU:\Console\PSReadLine" -Name "CommandForeground" -Value 0x1 -Type DWord -Description "PSReadLine: Command"
-Apply-RegTweak -Path "HKCU:\Console\PSReadLine" -Name "ParameterForeground" -Value 0xF -Type DWord -Description "PSReadLine: Parameter"
-Apply-RegTweak -Path "HKCU:\Console\PSReadLine" -Name "TypeForeground" -Value 0xE -Type DWord -Description "PSReadLine: Type"
-Apply-RegTweak -Path "HKCU:\Console\PSReadLine" -Name "NumberForeground" -Value 0xC -Type DWord -Description "PSReadLine: Number"
-Apply-RegTweak -Path "HKCU:\Console\PSReadLine" -Name "MemberForeground" -Value 0xE -Type DWord -Description "PSReadLine: Member"
-Apply-RegTweak -Path "HKCU:\Console\PSReadLine" -Name "EmphasisForeground" -Value 0xD -Type DWord -Description "PSReadLine: Emphasis"
-Apply-RegTweak -Path "HKCU:\Console\PSReadLine" -Name "ErrorForeground" -Value 0x4 -Type DWord -Description "PSReadLine: Error"
+Set-RegTweak -Path "HKCU:\Console\PSReadLine" -Name "NormalForeground" -Value 0xF -Type DWord -Description "PSReadLine: Normal"
+Set-RegTweak -Path "HKCU:\Console\PSReadLine" -Name "CommentForeground" -Value 0x7 -Type DWord -Description "PSReadLine: Comment"
+Set-RegTweak -Path "HKCU:\Console\PSReadLine" -Name "KeywordForeground" -Value 0x1 -Type DWord -Description "PSReadLine: Keyword"
+Set-RegTweak -Path "HKCU:\Console\PSReadLine" -Name "StringForeground" -Value 0xA -Type DWord -Description "PSReadLine: String"
+Set-RegTweak -Path "HKCU:\Console\PSReadLine" -Name "OperatorForeground" -Value 0xB -Type DWord -Description "PSReadLine: Operator"
+Set-RegTweak -Path "HKCU:\Console\PSReadLine" -Name "VariableForeground" -Value 0xB -Type DWord -Description "PSReadLine: Variable"
+Set-RegTweak -Path "HKCU:\Console\PSReadLine" -Name "CommandForeground" -Value 0x1 -Type DWord -Description "PSReadLine: Command"
+Set-RegTweak -Path "HKCU:\Console\PSReadLine" -Name "ParameterForeground" -Value 0xF -Type DWord -Description "PSReadLine: Parameter"
+Set-RegTweak -Path "HKCU:\Console\PSReadLine" -Name "TypeForeground" -Value 0xE -Type DWord -Description "PSReadLine: Type"
+Set-RegTweak -Path "HKCU:\Console\PSReadLine" -Name "NumberForeground" -Value 0xC -Type DWord -Description "PSReadLine: Number"
+Set-RegTweak -Path "HKCU:\Console\PSReadLine" -Name "MemberForeground" -Value 0xE -Type DWord -Description "PSReadLine: Member"
+Set-RegTweak -Path "HKCU:\Console\PSReadLine" -Name "EmphasisForeground" -Value 0xD -Type DWord -Description "PSReadLine: Emphasis"
+Set-RegTweak -Path "HKCU:\Console\PSReadLine" -Name "ErrorForeground" -Value 0x4 -Type DWord -Description "PSReadLine: Error"
 
 # Ensure Console paths exist for shortcuts
 $ConsolePaths = @(
@@ -789,4 +816,6 @@ foreach ($path in $ConsolePaths) {
 
 Write-Host "`n[+] Setup Complete! RESTART REQUIRED." -ForegroundColor Yellow
 Write-Host "    After restart, hold Alt + Left Click to drag windows!" -ForegroundColor Gray
+Write-Host "    Full log saved to: $TranscriptPath" -ForegroundColor Gray
+Stop-Transcript
 Read-Host "Press Enter to exit"
